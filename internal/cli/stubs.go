@@ -50,16 +50,6 @@ TODO: not implemented yet.
 			todo: "TODO: sre slo is not implemented yet. Planned: error-budget and burn-rate snapshot. 计划中：错误预算与燃烧率快照。",
 		},
 		{
-			use:   "certs",
-			short: "Certificate expiry watch (planned)",
-			long: `List TLS secrets and ingress certificates that expire soon.
-
-TODO: not implemented yet.
-
-计划中：检查即将过期的证书。`,
-			todo: "TODO: sre certs is not implemented yet. Planned: certificate expiry watch for TLS secrets and ingresses. 计划中：证书过期巡检。",
-		},
-		{
 			use:   "waste",
 			short: "Idle workload and oversized request signals (planned)",
 			long: `Find idle workloads, oversized requests, and unused PVCs.
