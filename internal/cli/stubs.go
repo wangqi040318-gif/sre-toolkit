@@ -39,16 +39,6 @@ TODO: not implemented yet.
 			todo: "TODO: sre slo is not implemented yet. Planned: error-budget and burn-rate snapshot. 计划中：错误预算与燃烧率快照。",
 		},
 		{
-			use:   "runbook",
-			short: "Fill a local runbook with cluster facts (planned)",
-			long: `Render a local runbook template with cluster facts filled in.
-
-TODO: not implemented yet.
-
-计划中：用集群事实填充本地 runbook 模板。`,
-			todo: "TODO: sre runbook is not implemented yet. Planned: render a local runbook with cluster facts filled in. 计划中：填充本地 runbook。",
-		},
-		{
 			use:   "daily",
 			short: "Daily operator digest (planned)",
 			long: `One-page digest of overnight alerts, deploys, and pulse findings.

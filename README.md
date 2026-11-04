@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets and reports **object → field → old → new → risk → what to check**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist: **current revision → pre-checks → undo command → verify → abort**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单，并按 **对象 → 字段 → 旧值 → 新值 → 风险 → 评审检查项** 输出。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册：**当前版本 → 预检查 → undo 命令 → 验证 → 中止条件**。
 
-Other commands (`triage`, `slo`, `runbook`, `daily`) are reserved placeholders.
+Other commands (`triage`, `slo`, `daily`) are reserved placeholders.
 
-其余子命令（`triage`、`slo`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
+其余子命令（`triage`、`slo`、`daily`）仅为占位，执行时会打印 TODO。
 
 ## English
 
@@ -20,6 +20,7 @@ make build
 ./bin/sre certs --demo
 ./bin/sre waste --demo
 ./bin/sre diff-review --demo
+./bin/sre runbook --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -143,6 +144,31 @@ CRITICAL  Image  Deployment shop/checkout
 
 Compared fields are images, requests and limits, probes, replicas, HPA, volumes and PVCs, Service type and ports, NetworkPolicy, RBAC, securityContext, and env/secretKeyRef. Risk is critical, high, medium, or low.
 
+### Rollback runbook
+
+```bash
+./bin/sre runbook --demo
+./bin/sre runbook --demo --markdown
+./bin/sre runbook -n shop checkout
+./bin/sre runbook -n shop checkout --revision 11 --report rollback.md
+./bin/sre runbook -n data db --kind statefulset
+```
+
+`--demo` does not contact a cluster. It is a failed `shop/checkout` release: revision 12 is `ghcr.io/example/checkout:1.9.0` with 0/3 pods Ready and CrashLoopBackOff because `STRIPE_API_KEY` is missing. The checklist rolls back to revision 11 (`checkout:1.8.4`) with `kubectl rollout undo`, an image fallback, rollout status, pod and event checks, and abort criteria. Commands are printed, not executed.
+
+```text
+CRITICAL  State  Deployment shop/checkout
+  Phenomenon    Deployment shop/checkout is at revision 12, image checkout=ghcr.io/example/checkout:1.9.0 (desired 3, ready 0, updated 3). 3 pods are CrashLoopBackOff...
+  Likely cause  The current revision is not Ready. Revision 11 (checkout=ghcr.io/example/checkout:1.8.4) is the recorded rollback target.
+  Next step     kubectl get deployment checkout -n shop -o wide
+
+WARNING   Rollback  Deployment shop/checkout
+  Phenomenon    Roll Deployment shop/checkout back to revision 11.
+  Next step     kubectl rollout undo deployment/checkout -n shop --to-revision=11
+```
+
+Live mode reads the Deployment (or StatefulSet), its ReplicaSets or ControllerRevisions, and matching pods. `--revision` picks the undo target. The default is the newest revision below the current one.
+
 ### Live cluster
 
 ```bash
@@ -183,9 +209,9 @@ Do not commit kubeconfig files.
 | `certs` | Ingress TLS, `kubernetes.io/tls` secrets, and local PEM expiry |
 | `waste` | Idle workloads, oversized requests, empty load balancers, orphaned PVCs |
 | `diff-review` | Risky field changes between two manifest sets |
+| `runbook` | Rollback checklist for a Deployment or StatefulSet |
 | `triage` | Planned: guided triage from a pod, node, or error |
 | `slo` | Planned: error-budget and burn-rate snapshot |
-| `runbook` | Planned: fill a local runbook with cluster facts |
 | `daily` | Planned: one-page operator digest |
 | `version` | Print the build version |
 
@@ -201,6 +227,8 @@ Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicase
 
 `diff-review` reads local files only. It does not talk to a cluster and it does not run Helm.
 
+`runbook` flags: `-n/--namespace`, workload name argument or `--name`, `--kind` (`deployment` or `statefulset`), `--revision`, `--demo`, `--kubeconfig`, `--context`, `--timeout`. Live mode needs `get` on the workload and `list` on `replicasets` or `controllerrevisions`, plus `list` on `pods`. It only prints kubectl commands.
+
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
 ## 中文
@@ -215,6 +243,7 @@ make build
 ./bin/sre certs --demo
 ./bin/sre waste --demo
 ./bin/sre diff-review --demo
+./bin/sre runbook --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -258,6 +287,16 @@ make build
 
 `--before` 和 `--after` 可以是 YAML/JSON 文件或目录。Helm 需要先 `helm template` 渲染成文件再传入，本命令不会调用 Helm。`--demo` 内置一次 checkout 发布：镜像变成 `:latest`、副本数降为 0、去掉内存 limit 和 liveness、容器变成 privileged 并挂载 hostPath、Service 改为 LoadBalancer、HPA 的 min 大于 max、删除 NetworkPolicy，并新增 cluster-admin 绑定。
 
+回滚手册：
+
+```bash
+./bin/sre runbook --demo
+./bin/sre runbook -n shop checkout
+./bin/sre runbook -n data db --kind statefulset
+```
+
+`--demo` 是一次失败的 checkout 发布：revision 12 的镜像 `checkout:1.9.0` 没有 Ready Pod，因为缺少 `STRIPE_API_KEY`。手册给出回到 revision 11（`checkout:1.8.4`）的 `kubectl rollout undo`、备用 `set image`、验证和中止条件。命令只打印，不会执行。
+
 ### 真实集群
 
 ```bash
@@ -278,7 +317,9 @@ make build
 
 ### 命令
 
-`k8s-pulse`、`certs`、`waste` 和 `diff-review` 已实现。`triage`、`slo`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse`、`certs`、`waste`、`diff-review` 和 `runbook` 已实现。`triage`、`slo`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`runbook` 根据 Deployment 或 StatefulSet 的当前镜像、副本和 revision 生成回滚清单。真实集群需要读取对应工作负载及其 ReplicaSet 或 ControllerRevision。
 
 `diff-review` 只读本地清单，对比镜像、resources、探针、副本、HPA、卷、Service、NetworkPolicy、RBAC、securityContext 和 env/secretKeyRef。
 
