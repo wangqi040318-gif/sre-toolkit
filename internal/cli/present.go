@@ -8,6 +8,7 @@ import (
 	"github.com/wangqi040318-gif/sre-toolkit/internal/diffreview"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/runbook"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/waste"
 )
 
@@ -186,6 +187,51 @@ func diffDocument(rep diffreview.Report) output.Document {
 	return output.Document{
 		Title:       "Manifest diff review",
 		Command:     "diff-review",
+		GeneratedAt: time.Now().UTC(),
+		Demo:        rep.Demo,
+		Meta:        meta,
+		Summary:     summary,
+		Findings:    findings,
+		Notes:       append([]string(nil), rep.Notes...),
+	}
+}
+
+func runbookDocument(rep runbook.Report, mode string) output.Document {
+	meta := []output.Field{
+		{Name: "Cluster", Value: rep.Cluster},
+		{Name: "Namespace", Value: rep.Namespace},
+		{Name: "Workload", Value: rep.Kind + " " + rep.Namespace + "/" + rep.Name},
+		{Name: "Mode", Value: mode},
+		{Name: "Current revision", Value: strconv.FormatInt(rep.CurrentRevision, 10)},
+		{Name: "Current image", Value: rep.CurrentImage},
+		{Name: "Target revision", Value: strconv.FormatInt(rep.TargetRevision, 10)},
+		{Name: "Target image", Value: rep.TargetImage},
+	}
+	summary := []output.Counter{
+		{Name: "Desired", Count: int(rep.Desired)},
+		{Name: "Ready", Count: int(rep.Ready)},
+		{Name: "Updated", Count: int(rep.Updated)},
+		{Name: "Steps", Count: len(rep.Steps)},
+	}
+	findings := make([]output.Finding, 0, len(rep.Steps))
+	for _, s := range rep.Steps {
+		details := make([]output.Field, 0, len(s.Details))
+		for _, d := range s.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    s.Severity,
+			Category:    s.Category,
+			Resource:    s.Resource,
+			Phenomenon:  s.Phenomenon,
+			LikelyCause: s.LikelyCause,
+			NextStep:    s.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "Rollback runbook",
+		Command:     "runbook",
 		GeneratedAt: time.Now().UTC(),
 		Demo:        rep.Demo,
 		Meta:        meta,

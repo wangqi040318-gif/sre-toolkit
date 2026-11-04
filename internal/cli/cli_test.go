@@ -366,6 +366,40 @@ func TestDiffReviewDemo(t *testing.T) {
 	}
 }
 
+func TestRunbookDemo(t *testing.T) {
+	out, _, err := execCLI(t, "runbook", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "runbook" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	if !strings.Contains(out, "kubectl rollout undo deployment/checkout -n shop --to-revision=11") {
+		t.Fatalf("missing undo\n%s", out)
+	}
+	if !strings.Contains(out, "1.9.0") || !strings.Contains(out, "1.8.4") || !strings.Contains(out, "CrashLoopBackOff") {
+		t.Fatalf("missing narrative\n%s", out)
+	}
+	if doc.Findings[0].Category != "State" || doc.Findings[len(doc.Findings)-1].Category != "Abort" {
+		t.Fatalf("order = %s ... %s", doc.Findings[0].Category, doc.Findings[len(doc.Findings)-1].Category)
+	}
+	_, _, err = execCLI(t, "runbook", "--demo", "--revision", "9")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("err = %v", err)
+	}
+	help, _, err := execCLI(t, "runbook", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--revision") {
+		t.Fatalf("help = %s", help)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	out, _, err := execCLI(t, "version")
 	if err != nil {
