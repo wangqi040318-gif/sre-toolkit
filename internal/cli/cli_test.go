@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 )
@@ -145,6 +153,105 @@ func TestPlannedCommandsAndHelp(t *testing.T) {
 	}
 }
 
+func TestCertsDemoJSON(t *testing.T) {
+	out, _, err := execCLI(t, "certs", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, "BEGIN ") {
+		t.Fatal("json leaked key material")
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "certs" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	counts := map[string]int{}
+	for _, c := range doc.Summary {
+		counts[c.Name] = c.Count
+	}
+	if counts["Expired"] != 1 || counts["Critical"] != 1 || counts["Warning"] != 1 || counts["OK"] != 1 || counts["Missing secrets"] != 1 {
+		t.Fatalf("counts = %v", counts)
+	}
+	var sawExpiry, sawNext bool
+	for _, f := range doc.Findings {
+		if strings.Contains(f.Phenomenon, "notAfter") || strings.Contains(f.Phenomenon, "expired") {
+			sawExpiry = true
+		}
+		if strings.Contains(f.NextStep, "kubectl") {
+			sawNext = true
+		}
+	}
+	if !sawExpiry || !sawNext {
+		t.Fatal("expected expiry and a kubectl next step")
+	}
+}
+
+func TestCertsDemoHumanNamespace(t *testing.T) {
+	out, _, err := execCLI(t, "certs", "--demo", "-n", "payments", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Phenomenon", "Likely cause", "Next step", "checkout.payments.example", "expired 12 days ago", "Severity: expired"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "api.shop.example") || strings.Contains(out, "PRIVATE KEY") {
+		t.Fatalf("namespace filter leaked\n%s", out)
+	}
+}
+
+func TestCertsFlagAndHelp(t *testing.T) {
+	_, _, err := execCLI(t, "certs", "--demo", "-A", "-n", "payments")
+	if err == nil || !strings.Contains(err.Error(), "either") {
+		t.Fatalf("err = %v", err)
+	}
+	_, _, err = execCLI(t, "certs", "--demo", "--warn-days", "7", "--critical-days", "7")
+	if err == nil || !strings.Contains(err.Error(), "warn-days") {
+		t.Fatalf("err = %v", err)
+	}
+	help, _, err := execCLI(t, "certs", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--warn-days") || !strings.Contains(help, "--file") {
+		t.Fatalf("help = %s", help)
+	}
+}
+
+func TestCertsFileWithoutCluster(t *testing.T) {
+	t.Setenv("KUBECONFIG", "")
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "leaf.pem")
+	if err := os.WriteFile(path, mustCertPEM(t, "file.example"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := execCLI(t, "certs", "--file", path, "--json", "--critical-days", "7", "--warn-days", "30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "PRIVATE KEY") {
+		t.Fatal("leaked key")
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Demo || doc.Command != "certs" || len(doc.Findings) != 1 {
+		t.Fatalf("doc findings = %d demo=%v", len(doc.Findings), doc.Demo)
+	}
+	if doc.Findings[0].Resource != "file "+path {
+		t.Fatalf("resource = %s", doc.Findings[0].Resource)
+	}
+	if !strings.Contains(doc.Findings[0].Phenomenon, "file.example") {
+		t.Fatalf("phenomenon = %s", doc.Findings[0].Phenomenon)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	out, _, err := execCLI(t, "version")
 	if err != nil {
@@ -153,6 +260,29 @@ func TestVersion(t *testing.T) {
 	if !strings.Contains(out, "sre ") {
 		t.Fatalf("version = %s", out)
 	}
+}
+
+func mustCertPEM(t *testing.T, cn string) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		DNSNames:     []string{cn},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(90 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 func execCLI(t *testing.T, args ...string) (string, string, error) {

@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. The first command, `k8s-pulse`, reads nodes, pods, and warning events and prints each signal as **phenomenon → likely cause → next step**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events and prints each signal as **phenomenon → likely cause → next step**. `certs` watches Ingress TLS, `kubernetes.io/tls` secrets, and local PEM files and reports **resource → expiry → severity → next step**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。当前实现 `k8s-pulse`：读取节点、Pod 和 Warning 事件，并按 **现象 → 可能原因 → 下一步** 输出。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件，并按 **现象 → 可能原因 → 下一步** 输出。`certs` 检查 Ingress TLS、`kubernetes.io/tls` Secret 和本地 PEM，并按 **资源 → 到期时间 → 严重级别 → 下一步** 输出。
 
-Other commands (`diff-review`, `triage`, `slo`, `certs`, `waste`, `runbook`, `daily`) are reserved placeholders.
+Other commands (`diff-review`, `triage`, `slo`, `waste`, `runbook`, `daily`) are reserved placeholders.
 
-其余子命令（`diff-review`、`triage`、`slo`、`certs`、`waste`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
+其余子命令（`diff-review`、`triage`、`slo`、`waste`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
 
 ## English
 
@@ -17,6 +17,7 @@ Requires Go 1.22 or newer.
 ```bash
 make build
 ./bin/sre k8s-pulse --demo
+./bin/sre certs --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -50,6 +51,37 @@ CRITICAL  OOMKilled  observability/prometheus-0
   Likely cause  The container crossed its memory limit (512Mi) and the kernel killed it.
   Next step     kubectl describe pod -n observability prometheus-0; kubectl logs ... --previous
 ```
+
+### Certificate demo (no cluster)
+
+```bash
+./bin/sre certs --demo
+./bin/sre certs --demo --json
+./bin/sre certs --demo --report certs.md
+./bin/sre certs --demo -n payments
+./bin/sre certs --file ./tls.crt --dir ./pems
+```
+
+`--demo` uses synthetic certificates: one expired checkout cert, one API cert inside the critical window (≤7 days), one Grafana cert inside the warn window (≤30 days), one healthy edge cert, and an Ingress whose TLS secret is missing. It does not read kubeconfig. `--file` and `--dir` scan local PEMs and do not contact a cluster when used without `-n`, `-A`, or `--kubeconfig`.
+
+```text
+Summary
+  Certificates      4
+  Expired           1
+  Critical          1
+  Warning           1
+  OK                1
+  Missing secrets   1
+
+Findings (5)
+
+CRITICAL  Expired  secret payments/checkout-tls
+  Phenomenon    Certificate checkout.payments.example expired 12 days ago (notAfter ...). Severity: expired.
+  Likely cause  The certificate is past notAfter.
+  Next step     kubectl describe certificate -n payments checkout; ...
+```
+
+Thresholds are `--critical-days` (default 7) and `--warn-days` (default 30). A certificate is critical when whole days remaining are less than or equal to the critical window, and a warning when they are less than or equal to the warn window.
 
 ### Live cluster
 
@@ -88,16 +120,20 @@ Do not commit kubeconfig files.
 | Command | Status |
 | --- | --- |
 | `k8s-pulse` (`pulse`) | CrashLoopBackOff, OOMKilled, high restarts, NotReady nodes, recent Warning events |
+| `certs` | Ingress TLS, `kubernetes.io/tls` secrets, and local PEM expiry |
 | `diff-review` | Planned: compare manifests or live objects and call out operational risk |
 | `triage` | Planned: guided triage from a pod, node, or error |
 | `slo` | Planned: error-budget and burn-rate snapshot |
-| `certs` | Planned: certificate expiry watch |
 | `waste` | Planned: idle workloads, oversized requests, unused PVCs |
 | `runbook` | Planned: fill a local runbook with cluster facts |
 | `daily` | Planned: one-page operator digest |
 | `version` | Print the build version |
 
 `k8s-pulse` flags: `-n/--namespace`, `-A/--all-namespaces`, `--demo`, `--kubeconfig`, `--context`, `--restart-threshold` (default 5), `--since` (default `1h`), `--event-limit` (default 20), `--timeout` (default `30s`).
+
+`certs` flags: `-n/--namespace`, `-A/--all-namespaces`, `--demo`, `--kubeconfig`, `--context`, `--warn-days` (default 30), `--critical-days` (default 7), `--file`, `--dir`, `--timeout` (default `30s`).
+
+Live `certs` needs `get` and `list` on `secrets` and `ingresses`. The command reads `tls.crt` only and does not print private keys. Listing secrets is still a privileged call; do not commit kubeconfig files or PEM bundles that contain keys.
 
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
@@ -110,6 +146,7 @@ An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff,
 ```bash
 make build
 ./bin/sre k8s-pulse --demo
+./bin/sre certs --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -124,6 +161,16 @@ make build
 ```
 
 `--demo` 使用一套固定的合成故障：缺少环境变量导致的 CrashLoop、被 OOMKilled 的 Prometheus、重启次数偏高的 Pod、磁盘压力下的 NotReady 节点，以及最近的 Warning 事件。不会读取 kubeconfig，也不会访问 API。
+
+证书演示同样不需要集群：
+
+```bash
+./bin/sre certs --demo
+./bin/sre certs --demo -n payments
+./bin/sre certs --file ./tls.crt
+```
+
+内置数据包含已过期、7 天内（critical）、30 天内（warn）、仍然健康的证书，以及一个找不到 TLS Secret 的 Ingress。`--critical-days` 默认 7，`--warn-days` 默认 30。单独使用 `--file` 或 `--dir` 时不会访问集群。
 
 ### 真实集群
 
@@ -145,7 +192,9 @@ make build
 
 ### 命令
 
-`k8s-pulse` 已实现。`diff-review`、`triage`、`slo`、`certs`、`waste`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse` 和 `certs` 已实现。`diff-review`、`triage`、`slo`、`waste`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`certs` 读取 Ingress 的 `spec.tls`、类型为 `kubernetes.io/tls` 的 Secret，以及本地 PEM。只解析证书，不打印私钥。真实集群需要 `secrets` 和 `ingresses` 的 `get`/`list` 权限。
 
 同一容器如果上次退出原因是 OOMKilled，即使当前是 CrashLoopBackOff，也只归因为 OOM。`Succeeded` 的 Pod 会被计入扫描数，但不会因为重启次数被报出来。
 
