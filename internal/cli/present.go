@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wangqi040318-gif/sre-toolkit/internal/certs"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/daily"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/diffreview"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
@@ -240,6 +241,51 @@ func runbookDocument(rep runbook.Report, mode string) output.Document {
 		Summary:     summary,
 		Findings:    findings,
 		Notes:       append([]string(nil), rep.Notes...),
+	}
+}
+
+func dailyDocument(rep daily.Report, mode string) output.Document {
+	var critical, warning, info int
+	findings := make([]output.Finding, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		switch f.Severity {
+		case "critical":
+			critical++
+		case "warning":
+			warning++
+		default:
+			info++
+		}
+		details := make([]output.Field, 0, len(f.Details))
+		for _, d := range f.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    f.Severity,
+			Category:    f.Category,
+			Resource:    f.Resource,
+			Phenomenon:  f.Phenomenon,
+			LikelyCause: f.LikelyCause,
+			NextStep:    f.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "Morning digest",
+		Command:     "daily",
+		GeneratedAt: time.Now().UTC(),
+		Demo:        rep.Demo,
+		Meta: []output.Field{
+			{Name: "Contexts", Value: strconv.Itoa(len(rep.Clusters))},
+			{Name: "Source", Value: mode},
+		},
+		Summary: []output.Counter{
+			{Name: "Critical", Count: critical},
+			{Name: "Warning", Count: warning},
+			{Name: "Info", Count: info},
+		},
+		Findings: findings,
+		Notes:    append([]string(nil), rep.Notes...),
 	}
 }
 
