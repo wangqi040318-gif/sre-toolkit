@@ -133,7 +133,7 @@ func TestPlannedCommandsAndHelp(t *testing.T) {
 	if !strings.Contains(out, "TODO:") || !strings.Contains(out, "计划中") {
 		t.Fatalf("triage = %s", out)
 	}
-	longHelp, _, err := execCLI(t, "diff-review", "--help")
+	longHelp, _, err := execCLI(t, "slo", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,6 +308,61 @@ func TestWasteDemoNamespaceAndHelp(t *testing.T) {
 	}
 	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--idle-for") || !strings.Contains(help, "--usage-ratio") {
 		t.Fatalf("help = %s", help)
+	}
+}
+
+func TestDiffReviewDemo(t *testing.T) {
+	out, _, err := execCLI(t, "diff-review", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "diff-review" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	counts := map[string]int{}
+	for _, c := range doc.Summary {
+		counts[c.Name] = c.Count
+	}
+	if counts["Critical"] < 1 || counts["High"] < 1 {
+		t.Fatalf("counts = %v", counts)
+	}
+	if !strings.Contains(out, "checkout:latest") || !strings.Contains(out, "cluster-admin") || !strings.Contains(out, "hostPath") {
+		t.Fatalf("demo missing review signals\n%s", out)
+	}
+	var sawOld, sawNew, sawRisk bool
+	for _, f := range doc.Findings {
+		for _, d := range f.Details {
+			switch d.Name {
+			case "old":
+				if d.Value != "" {
+					sawOld = true
+				}
+			case "new":
+				if d.Value != "" {
+					sawNew = true
+				}
+			case "risk":
+				sawRisk = true
+			}
+		}
+	}
+	if !sawOld || !sawNew || !sawRisk {
+		t.Fatal("expected old, new, and risk on findings")
+	}
+	help, _, err := execCLI(t, "diff-review", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--before") || !strings.Contains(help, "helm template") {
+		t.Fatalf("help = %s", help)
+	}
+	_, _, err = execCLI(t, "diff-review", "--before", "only-one")
+	if err == nil || !strings.Contains(err.Error(), "--before") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

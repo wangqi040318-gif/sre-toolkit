@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events and prints each signal as **phenomenon → likely cause → next step**. `certs` watches certificate expiry. `waste` looks for idle or oversized Kubernetes objects and reports **resource → why it is wasteful → severity → next step**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets and reports **object → field → old → new → risk → what to check**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件，并按 **现象 → 可能原因 → 下一步** 输出。`certs` 检查证书到期。`waste` 查找闲置或过大的 Kubernetes 对象，并按 **资源 → 为何浪费 → 严重级别 → 下一步** 输出。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单，并按 **对象 → 字段 → 旧值 → 新值 → 风险 → 评审检查项** 输出。
 
-Other commands (`diff-review`, `triage`, `slo`, `runbook`, `daily`) are reserved placeholders.
+Other commands (`triage`, `slo`, `runbook`, `daily`) are reserved placeholders.
 
-其余子命令（`diff-review`、`triage`、`slo`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
+其余子命令（`triage`、`slo`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
 
 ## English
 
@@ -19,6 +19,7 @@ make build
 ./bin/sre k8s-pulse --demo
 ./bin/sre certs --demo
 ./bin/sre waste --demo
+./bin/sre diff-review --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -114,6 +115,34 @@ CRITICAL  Oversized  sts observability/prometheus
 
 Without metrics.k8s.io, a live scan does not fail. It flags requests of at least 2 CPU or 4Gi instead of comparing usage. `--idle-for` defaults to 24h. `--usage-ratio` defaults to 0.20. Bound PVCs of 100Gi or more with no running mounter are critical.
 
+### Diff review demo (no cluster)
+
+```bash
+./bin/sre diff-review --demo
+./bin/sre diff-review --demo --json
+./bin/sre diff-review --before ./before.yaml --after ./after.yaml
+./bin/sre diff-review --before ./before-dir --after ./after-dir --report review.md
+```
+
+`--before` and `--after` are YAML or JSON files, or directories of them (including multi-document files). Render Helm yourself and pass the output; this command does not run Helm:
+
+```bash
+helm template rel chart -f old-values.yaml > /tmp/before.yaml
+helm template rel chart -f new-values.yaml > /tmp/after.yaml
+./bin/sre diff-review --before /tmp/before.yaml --after /tmp/after.yaml
+```
+
+`--demo` reviews a built-in checkout release. The image moves to `:latest`, replicas go to 0, the memory limit and liveness probe disappear, the container becomes privileged with `NET_ADMIN` and a hostPath, the API key secret key changes, the Service becomes a LoadBalancer, the HPA min is higher than max, the NetworkPolicy is deleted, and a cluster-admin binding is added. An unchanged Deployment is omitted.
+
+```text
+CRITICAL  Image  Deployment shop/checkout
+  Phenomenon    Risk critical. spec.template.spec.containers[checkout].image: ghcr.io/example/checkout:1.4.2 -> ghcr.io/example/checkout:latest
+  Likely cause  The image moved from a pinned tag to latest.
+  Next step     Confirm the image is in the allowed registry and the tag is pinned.
+```
+
+Compared fields are images, requests and limits, probes, replicas, HPA, volumes and PVCs, Service type and ports, NetworkPolicy, RBAC, securityContext, and env/secretKeyRef. Risk is critical, high, medium, or low.
+
 ### Live cluster
 
 ```bash
@@ -153,7 +182,7 @@ Do not commit kubeconfig files.
 | `k8s-pulse` (`pulse`) | CrashLoopBackOff, OOMKilled, high restarts, NotReady nodes, recent Warning events |
 | `certs` | Ingress TLS, `kubernetes.io/tls` secrets, and local PEM expiry |
 | `waste` | Idle workloads, oversized requests, empty load balancers, orphaned PVCs |
-| `diff-review` | Planned: compare manifests or live objects and call out operational risk |
+| `diff-review` | Risky field changes between two manifest sets |
 | `triage` | Planned: guided triage from a pod, node, or error |
 | `slo` | Planned: error-budget and burn-rate snapshot |
 | `runbook` | Planned: fill a local runbook with cluster facts |
@@ -170,6 +199,8 @@ Live `certs` needs `get` and `list` on `secrets` and `ingresses`. The command re
 
 Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicasets`, `pods`, `services`, `endpoints`, and `persistentvolumeclaims`. ConfigMaps, Secrets, and `pods.metrics.k8s.io` are optional. If metrics are missing, the command still reports idle objects, empty load balancers, PVCs, and suspiciously large requests.
 
+`diff-review` reads local files only. It does not talk to a cluster and it does not run Helm.
+
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
 ## 中文
@@ -183,6 +214,7 @@ make build
 ./bin/sre k8s-pulse --demo
 ./bin/sre certs --demo
 ./bin/sre waste --demo
+./bin/sre diff-review --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -217,6 +249,15 @@ make build
 
 内置数据包含缩容到 0 的 Deployment、长时间没有 Ready Pod 的 Deployment、requests 远高于用量的 StatefulSet、没有端点的 LoadBalancer、已绑定但无人挂载的 200Gi PVC，以及未使用的 ConfigMap 和 Secret。没有 metrics-server 时命令不会失败，改为标记至少 2 CPU 或 4Gi 的 requests。`--idle-for` 默认 24h，`--usage-ratio` 默认 0.20。
 
+清单对比演示：
+
+```bash
+./bin/sre diff-review --demo
+./bin/sre diff-review --before ./before.yaml --after ./after.yaml
+```
+
+`--before` 和 `--after` 可以是 YAML/JSON 文件或目录。Helm 需要先 `helm template` 渲染成文件再传入，本命令不会调用 Helm。`--demo` 内置一次 checkout 发布：镜像变成 `:latest`、副本数降为 0、去掉内存 limit 和 liveness、容器变成 privileged 并挂载 hostPath、Service 改为 LoadBalancer、HPA 的 min 大于 max、删除 NetworkPolicy，并新增 cluster-admin 绑定。
+
 ### 真实集群
 
 ```bash
@@ -237,7 +278,9 @@ make build
 
 ### 命令
 
-`k8s-pulse`、`certs` 和 `waste` 已实现。`diff-review`、`triage`、`slo`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse`、`certs`、`waste` 和 `diff-review` 已实现。`triage`、`slo`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`diff-review` 只读本地清单，对比镜像、resources、探针、副本、HPA、卷、Service、NetworkPolicy、RBAC、securityContext 和 env/secretKeyRef。
 
 `waste` 检查 Deployment、StatefulSet、独立 ReplicaSet、LoadBalancer Service、PVC，以及可选的未引用 ConfigMap/Secret。真实集群需要相应资源的 `get`/`list`。用量来自 `metrics.k8s.io`，没有时自动降级。
 

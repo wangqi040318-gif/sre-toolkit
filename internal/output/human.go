@@ -111,10 +111,12 @@ func severityColor(severity string) string {
 	switch severity {
 	case SeverityCritical:
 		return ansiBold + ansiRed
-	case SeverityWarning:
+	case SeverityWarning, "high":
 		return ansiBold + ansiYellow
-	case SeverityInfo:
+	case SeverityInfo, "medium":
 		return ansiBold + ansiCyan
+	case "low":
+		return ansiGreen
 	default:
 		return ansiGreen
 	}
