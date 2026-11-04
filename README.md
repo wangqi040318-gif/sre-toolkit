@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events and prints each signal as **phenomenon → likely cause → next step**. `certs` watches Ingress TLS, `kubernetes.io/tls` secrets, and local PEM files and reports **resource → expiry → severity → next step**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events and prints each signal as **phenomenon → likely cause → next step**. `certs` watches certificate expiry. `waste` looks for idle or oversized Kubernetes objects and reports **resource → why it is wasteful → severity → next step**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件，并按 **现象 → 可能原因 → 下一步** 输出。`certs` 检查 Ingress TLS、`kubernetes.io/tls` Secret 和本地 PEM，并按 **资源 → 到期时间 → 严重级别 → 下一步** 输出。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件，并按 **现象 → 可能原因 → 下一步** 输出。`certs` 检查证书到期。`waste` 查找闲置或过大的 Kubernetes 对象，并按 **资源 → 为何浪费 → 严重级别 → 下一步** 输出。
 
-Other commands (`diff-review`, `triage`, `slo`, `waste`, `runbook`, `daily`) are reserved placeholders.
+Other commands (`diff-review`, `triage`, `slo`, `runbook`, `daily`) are reserved placeholders.
 
-其余子命令（`diff-review`、`triage`、`slo`、`waste`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
+其余子命令（`diff-review`、`triage`、`slo`、`runbook`、`daily`）仅为占位，执行时会打印 TODO。
 
 ## English
 
@@ -18,6 +18,7 @@ Requires Go 1.22 or newer.
 make build
 ./bin/sre k8s-pulse --demo
 ./bin/sre certs --demo
+./bin/sre waste --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -83,6 +84,36 @@ CRITICAL  Expired  secret payments/checkout-tls
 
 Thresholds are `--critical-days` (default 7) and `--warn-days` (default 30). A certificate is critical when whole days remaining are less than or equal to the critical window, and a warning when they are less than or equal to the warn window.
 
+### Waste demo (no cluster)
+
+```bash
+./bin/sre waste --demo
+./bin/sre waste --demo --json
+./bin/sre waste --demo -n shop
+./bin/sre waste -A
+```
+
+`--demo` does not read kubeconfig. The synthetic story is a scaled-to-zero Deployment, a Deployment with no Ready pods for days, a StatefulSet whose 4 CPU / 8Gi request is far above usage, a LoadBalancer with an address and no endpoints, a 200Gi Bound PVC nobody mounts, an unbound PVC, and an unused ConfigMap and Secret. A healthy Deployment, a mounted PVC, and a referenced ConfigMap are present and not flagged. ReplicaSets owned by a Deployment are skipped.
+
+```text
+Summary
+  Workloads       4
+  Idle            2
+  Oversized       1
+  Load balancers  1
+  Orphaned PVCs   1
+  Unbound PVCs    1
+
+Findings (8)
+
+CRITICAL  Oversized  sts observability/prometheus
+  Phenomenon    StatefulSet observability/prometheus reserves 4 CPU and 8Gi memory across 1 replica, but metrics show 150m CPU in use of 4 requested (3.8%).
+  Likely cause  The request is what the scheduler reserves.
+  Next step     Rightsize requests toward observed usage...
+```
+
+Without metrics.k8s.io, a live scan does not fail. It flags requests of at least 2 CPU or 4Gi instead of comparing usage. `--idle-for` defaults to 24h. `--usage-ratio` defaults to 0.20. Bound PVCs of 100Gi or more with no running mounter are critical.
+
 ### Live cluster
 
 ```bash
@@ -121,10 +152,10 @@ Do not commit kubeconfig files.
 | --- | --- |
 | `k8s-pulse` (`pulse`) | CrashLoopBackOff, OOMKilled, high restarts, NotReady nodes, recent Warning events |
 | `certs` | Ingress TLS, `kubernetes.io/tls` secrets, and local PEM expiry |
+| `waste` | Idle workloads, oversized requests, empty load balancers, orphaned PVCs |
 | `diff-review` | Planned: compare manifests or live objects and call out operational risk |
 | `triage` | Planned: guided triage from a pod, node, or error |
 | `slo` | Planned: error-budget and burn-rate snapshot |
-| `waste` | Planned: idle workloads, oversized requests, unused PVCs |
 | `runbook` | Planned: fill a local runbook with cluster facts |
 | `daily` | Planned: one-page operator digest |
 | `version` | Print the build version |
@@ -134,6 +165,10 @@ Do not commit kubeconfig files.
 `certs` flags: `-n/--namespace`, `-A/--all-namespaces`, `--demo`, `--kubeconfig`, `--context`, `--warn-days` (default 30), `--critical-days` (default 7), `--file`, `--dir`, `--timeout` (default `30s`).
 
 Live `certs` needs `get` and `list` on `secrets` and `ingresses`. The command reads `tls.crt` only and does not print private keys. Listing secrets is still a privileged call; do not commit kubeconfig files or PEM bundles that contain keys.
+
+`waste` flags: `-n/--namespace`, `-A/--all-namespaces`, `--demo`, `--kubeconfig`, `--context`, `--idle-for` (default `24h`), `--usage-ratio` (default `0.20`), `--include-config` (default true), `--timeout` (default `30s`).
+
+Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicasets`, `pods`, `services`, `endpoints`, and `persistentvolumeclaims`. ConfigMaps, Secrets, and `pods.metrics.k8s.io` are optional. If metrics are missing, the command still reports idle objects, empty load balancers, PVCs, and suspiciously large requests.
 
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
@@ -147,6 +182,7 @@ An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff,
 make build
 ./bin/sre k8s-pulse --demo
 ./bin/sre certs --demo
+./bin/sre waste --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -172,6 +208,15 @@ make build
 
 内置数据包含已过期、7 天内（critical）、30 天内（warn）、仍然健康的证书，以及一个找不到 TLS Secret 的 Ingress。`--critical-days` 默认 7，`--warn-days` 默认 30。单独使用 `--file` 或 `--dir` 时不会访问集群。
 
+浪费演示同样不需要集群：
+
+```bash
+./bin/sre waste --demo
+./bin/sre waste --demo -n shop
+```
+
+内置数据包含缩容到 0 的 Deployment、长时间没有 Ready Pod 的 Deployment、requests 远高于用量的 StatefulSet、没有端点的 LoadBalancer、已绑定但无人挂载的 200Gi PVC，以及未使用的 ConfigMap 和 Secret。没有 metrics-server 时命令不会失败，改为标记至少 2 CPU 或 4Gi 的 requests。`--idle-for` 默认 24h，`--usage-ratio` 默认 0.20。
+
 ### 真实集群
 
 ```bash
@@ -192,7 +237,9 @@ make build
 
 ### 命令
 
-`k8s-pulse` 和 `certs` 已实现。`diff-review`、`triage`、`slo`、`waste`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse`、`certs` 和 `waste` 已实现。`diff-review`、`triage`、`slo`、`runbook`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`waste` 检查 Deployment、StatefulSet、独立 ReplicaSet、LoadBalancer Service、PVC，以及可选的未引用 ConfigMap/Secret。真实集群需要相应资源的 `get`/`list`。用量来自 `metrics.k8s.io`，没有时自动降级。
 
 `certs` 读取 Ingress 的 `spec.tls`、类型为 `kubernetes.io/tls` 的 Secret，以及本地 PEM。只解析证书，不打印私钥。真实集群需要 `secrets` 和 `ingresses` 的 `get`/`list` 权限。
 
