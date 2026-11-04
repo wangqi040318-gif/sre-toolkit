@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wangqi040318-gif/sre-toolkit/internal/certs"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/diffreview"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/waste"
@@ -140,6 +141,52 @@ func wasteDocument(rep waste.Report, mode string) output.Document {
 		Title:       "Resource waste",
 		Command:     "waste",
 		GeneratedAt: rep.GeneratedAt,
+		Demo:        rep.Demo,
+		Meta:        meta,
+		Summary:     summary,
+		Findings:    findings,
+		Notes:       append([]string(nil), rep.Notes...),
+	}
+}
+
+func diffDocument(rep diffreview.Report) output.Document {
+	mode := "files"
+	if rep.Demo {
+		mode = "demo"
+	}
+	meta := []output.Field{
+		{Name: "Before", Value: rep.Before},
+		{Name: "After", Value: rep.After},
+		{Name: "Mode", Value: mode},
+	}
+	summary := []output.Counter{
+		{Name: "Objects before", Count: rep.Summary.ObjectsBefore},
+		{Name: "Objects after", Count: rep.Summary.ObjectsAfter},
+		{Name: "Critical", Count: rep.Summary.Critical},
+		{Name: "High", Count: rep.Summary.High},
+		{Name: "Medium", Count: rep.Summary.Medium},
+		{Name: "Low", Count: rep.Summary.Low},
+	}
+	findings := make([]output.Finding, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		details := make([]output.Field, 0, len(f.Details))
+		for _, d := range f.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    f.Severity,
+			Category:    f.Category,
+			Resource:    f.Resource,
+			Phenomenon:  f.Phenomenon,
+			LikelyCause: f.LikelyCause,
+			NextStep:    f.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "Manifest diff review",
+		Command:     "diff-review",
+		GeneratedAt: time.Now().UTC(),
 		Demo:        rep.Demo,
 		Meta:        meta,
 		Summary:     summary,

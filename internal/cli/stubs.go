@@ -18,17 +18,6 @@ type plannedSpec struct {
 func plannedSpecs() []plannedSpec {
 	return []plannedSpec{
 		{
-			use:   "diff-review",
-			short: "Compare manifests and summarize operational risk (planned)",
-			long: `Compare two Kubernetes manifests, Helm renders, or live objects and
-summarize what changed and why it matters operationally.
-
-TODO: not implemented yet.
-
-计划中：对比两份清单或线上对象，并说明变更的运维影响。`,
-			todo: "TODO: sre diff-review is not implemented yet. Planned: compare two manifests or live objects and summarize operational risk. 计划中：对比清单或线上对象并说明运维影响。",
-		},
-		{
 			use:   "triage",
 			short: "Guided incident triage from a symptom (planned)",
 			long: `Start from a pod, node, or error text and walk the next checks:
