@@ -50,16 +50,6 @@ TODO: not implemented yet.
 			todo: "TODO: sre slo is not implemented yet. Planned: error-budget and burn-rate snapshot. 计划中：错误预算与燃烧率快照。",
 		},
 		{
-			use:   "waste",
-			short: "Idle workload and oversized request signals (planned)",
-			long: `Find idle workloads, oversized requests, and unused PVCs.
-
-TODO: not implemented yet.
-
-计划中：找出闲置工作负载、过大的 requests 和未使用的 PVC。`,
-			todo: "TODO: sre waste is not implemented yet. Planned: idle workload, oversized request, and unused PVC signals. 计划中：资源浪费信号。",
-		},
-		{
 			use:   "runbook",
 			short: "Fill a local runbook with cluster facts (planned)",
 			long: `Render a local runbook template with cluster facts filled in.

@@ -252,6 +252,65 @@ func TestCertsFileWithoutCluster(t *testing.T) {
 	}
 }
 
+func TestWasteDemoJSON(t *testing.T) {
+	out, _, err := execCLI(t, "waste", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "waste" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	counts := map[string]int{}
+	for _, c := range doc.Summary {
+		counts[c.Name] = c.Count
+	}
+	if counts["Idle"] != 2 || counts["Oversized"] != 1 || counts["Load balancers"] != 1 || counts["Orphaned PVCs"] != 1 || counts["Unbound PVCs"] != 1 {
+		t.Fatalf("counts = %v", counts)
+	}
+	var sawWhy, sawNext bool
+	for _, f := range doc.Findings {
+		if f.Phenomenon != "" {
+			sawWhy = true
+		}
+		if strings.Contains(f.NextStep, "kubectl") {
+			sawNext = true
+		}
+	}
+	if !sawWhy || !sawNext {
+		t.Fatal("expected a reason and a kubectl next step")
+	}
+}
+
+func TestWasteDemoNamespaceAndHelp(t *testing.T) {
+	out, _, err := execCLI(t, "waste", "--demo", "-n", "shop", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Phenomenon", "Likely cause", "Next step", "recommendations", "storefront", "feature-flags"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "prometheus") || strings.Contains(out, "data/archive") {
+		t.Fatalf("namespace leak\n%s", out)
+	}
+	_, _, err = execCLI(t, "waste", "--demo", "-A", "-n", "shop")
+	if err == nil || !strings.Contains(err.Error(), "either") {
+		t.Fatalf("err = %v", err)
+	}
+	help, _, err := execCLI(t, "waste", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--idle-for") || !strings.Contains(help, "--usage-ratio") {
+		t.Fatalf("help = %s", help)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	out, _, err := execCLI(t, "version")
 	if err != nil {

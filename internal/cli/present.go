@@ -7,6 +7,7 @@ import (
 	"github.com/wangqi040318-gif/sre-toolkit/internal/certs"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/waste"
 )
 
 func pulseDocument(rep pulse.Report, mode string) output.Document {
@@ -98,6 +99,63 @@ func certsDocument(rep certs.Report, mode string) output.Document {
 		Findings:    findings,
 		Notes:       append([]string(nil), rep.Notes...),
 	}
+}
+
+func wasteDocument(rep waste.Report, mode string) output.Document {
+	meta := []output.Field{
+		{Name: "Cluster", Value: rep.Cluster},
+		{Name: "Scope", Value: rep.Scope},
+		{Name: "Mode", Value: mode},
+		{Name: "Idle for", Value: prettyDuration(rep.IdleFor)},
+		{Name: "Usage ratio", Value: strconv.FormatFloat(rep.UsageRatio, 'f', 2, 64)},
+	}
+	summary := []output.Counter{
+		{Name: "Workloads", Count: rep.Summary.Workloads},
+		{Name: "Idle", Count: rep.Summary.Idle},
+		{Name: "Oversized", Count: rep.Summary.Oversized},
+		{Name: "High requests", Count: rep.Summary.HighRequests},
+		{Name: "Load balancers", Count: rep.Summary.LoadBalancers},
+		{Name: "Orphaned PVCs", Count: rep.Summary.OrphanedPVCs},
+		{Name: "Unbound PVCs", Count: rep.Summary.UnboundPVCs},
+		{Name: "Unused config", Count: rep.Summary.UnusedConfig},
+		{Name: "Unused secrets", Count: rep.Summary.UnusedSecrets},
+	}
+	findings := make([]output.Finding, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		details := make([]output.Field, 0, len(f.Details))
+		for _, d := range f.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    f.Severity,
+			Category:    f.Category,
+			Resource:    f.Resource,
+			Phenomenon:  f.Phenomenon,
+			LikelyCause: f.LikelyCause,
+			NextStep:    f.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "Resource waste",
+		Command:     "waste",
+		GeneratedAt: rep.GeneratedAt,
+		Demo:        rep.Demo,
+		Meta:        meta,
+		Summary:     summary,
+		Findings:    findings,
+		Notes:       append([]string(nil), rep.Notes...),
+	}
+}
+
+func prettyDuration(d time.Duration) string {
+	if d > 0 && d%time.Hour == 0 {
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	}
+	if d > 0 && d%time.Minute == 0 {
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	}
+	return d.String()
 }
 
 func shortWindow(d time.Duration) string {
