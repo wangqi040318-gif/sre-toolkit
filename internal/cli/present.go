@@ -9,6 +9,7 @@ import (
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/runbook"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/triage"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/waste"
 )
 
@@ -239,6 +240,73 @@ func runbookDocument(rep runbook.Report, mode string) output.Document {
 		Findings:    findings,
 		Notes:       append([]string(nil), rep.Notes...),
 	}
+}
+
+func triageDocument(rep triage.Report, mode string) output.Document {
+	meta := []output.Field{
+		{Name: "Service", Value: rep.Service},
+		{Name: "Window", Value: rep.Start.Format(time.RFC3339) + " to " + rep.End.Format(time.RFC3339)},
+		{Name: "Mode", Value: mode},
+		{Name: "Request rate", Value: metricText(rep.Summary.HasRequests, formatRPS(rep.Summary.RequestRate))},
+		{Name: "5xx ratio", Value: metricText(rep.Summary.HasErrors, formatPct(rep.Summary.ErrorRatio))},
+		{Name: "p95", Value: metricText(rep.Summary.HasP95, formatSecs(rep.Summary.P95Seconds))},
+		{Name: "p99", Value: metricText(rep.Summary.HasP99, formatSecs(rep.Summary.P99Seconds))},
+	}
+	var critical, warning, info int
+	findings := make([]output.Finding, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		switch f.Severity {
+		case "critical":
+			critical++
+		case "warning":
+			warning++
+		default:
+			info++
+		}
+		details := make([]output.Field, 0, len(f.Details))
+		for _, d := range f.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    f.Severity,
+			Category:    f.Category,
+			Resource:    f.Resource,
+			Phenomenon:  f.Phenomenon,
+			LikelyCause: f.LikelyCause,
+			NextStep:    f.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "Triage brief",
+		Command:     "triage",
+		GeneratedAt: rep.End,
+		Demo:        rep.Demo,
+		Meta:        meta,
+		Summary: []output.Counter{
+			{Name: "Critical", Count: critical},
+			{Name: "Warning", Count: warning},
+			{Name: "Info", Count: info},
+		},
+		Findings: findings,
+		Notes:    append([]string(nil), rep.Notes...),
+	}
+}
+
+func metricText(ok bool, v string) string {
+	if !ok {
+		return "missing"
+	}
+	return v
+}
+
+func formatRPS(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) + " req/s" }
+func formatPct(v float64) string { return strconv.FormatFloat(v*100, 'f', 1, 64) + "%" }
+func formatSecs(v float64) string {
+	if v < 1 {
+		return strconv.FormatFloat(v*1000, 'f', 0, 64) + "ms"
+	}
+	return strconv.FormatFloat(v, 'f', 2, 64) + "s"
 }
 
 func prettyDuration(d time.Duration) string {
