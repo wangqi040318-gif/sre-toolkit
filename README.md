@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist. `triage` builds an incident brief from Prometheus RED metrics: **error rate → latency → traffic → hypothesis → next checks**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist. `triage` builds an incident brief from Prometheus. `slo` reports **success ratio → error budget remaining → burn rates → release decision**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册。`triage` 用 Prometheus 的 RED 指标生成排查简报：**错误率 → 延迟 → 流量 → 假设 → 下一步**。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册。`triage` 用 Prometheus 生成排查简报。`slo` 报告 **成功率 → 错误预算剩余 → 燃烧率 → 是否冻结发布**。
 
-Other commands (`slo`, `daily`) are reserved placeholders.
+The `daily` command is still a placeholder.
 
-其余子命令（`slo`、`daily`）仅为占位，执行时会打印 TODO。
+`daily` 仍为占位，执行时会打印 TODO。
 
 ## English
 
@@ -22,6 +22,7 @@ make build
 ./bin/sre diff-review --demo
 ./bin/sre runbook --demo
 ./bin/sre triage --demo
+./bin/sre slo --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -196,6 +197,25 @@ Default metrics, overridable with `--requests`, `--errors`, `--p95`, `--p99`, an
 
 The URL is `--prometheus-url` or `PROMETHEUS_URL`. An optional bearer token is `--bearer-token` or `PROMETHEUS_TOKEN` and is not printed. `--window` or `--since` is the lookback (default `1h`). `--until` is an RFC3339 end time. Logs are not queried.
 
+### SLO demo (no Prometheus)
+
+```bash
+./bin/sre slo --demo
+./bin/sre slo --demo --json
+./bin/sre slo checkout --prometheus-url http://prometheus:9090
+./bin/sre slo checkout --slo 99.95 --window 5m,1h,6h
+```
+
+`--demo` does not call Prometheus. For a 99.9% availability target the checkout service is burning budget: 1h at 20x (page), 6h at 8x, and the 3-day window has already spent the budget (about -50% remaining). The recommendation is to page and freeze releases.
+
+```text
+CRITICAL  Recommendation  service checkout
+  Phenomenon    Page and freeze. The 1h burn rate is 20.0x, at or above the 14.4x page threshold.
+  Next step     sre triage checkout --window 1h; kubectl rollout history deployment/checkout
+```
+
+`--window` takes at least two durations, default `1h,6h,3d` (`1h/6h/3d` works too). Burn rate is the window's 5xx ratio divided by `(1 - SLO)`. The fast window pages at 14.4x. A 6h burn at 6x, or a multi-day burn at 1x, freezes non-urgent releases. The default query is `increase()` of `http_requests_total` with `code=~"5.."` over all requests, selected by `job="{service}"`. Override it with `--errors` or `--selector`. The same Prometheus URL and bearer token as `sre triage` are used.
+
 ### Live cluster
 
 ```bash
@@ -238,7 +258,7 @@ Do not commit kubeconfig files.
 | `diff-review` | Risky field changes between two manifest sets |
 | `runbook` | Rollback checklist for a Deployment or StatefulSet |
 | `triage` | Prometheus RED brief: error rate, latency, traffic, next checks |
-| `slo` | Planned: error-budget and burn-rate snapshot |
+| `slo` | Error budget, multi-window burn rate, and release freeze decision |
 | `daily` | Planned: one-page operator digest |
 | `version` | Print the build version |
 
@@ -258,6 +278,8 @@ Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicase
 
 `triage` flags: service argument or `--service`, `--window` or `--since` (default `1h`), `--until`, `--prometheus-url`, `--bearer-token`, `--selector`, `--requests`, `--errors`, `--p95`, `--p99`, `--timeout`, `--demo`. It only reads the Prometheus HTTP API.
 
+`slo` flags: service argument or `--service`, `--slo` (default `99.9`), `--window` (default `1h,6h,3d`), `--prometheus-url`, `--bearer-token`, `--selector`, `--errors`, `--timeout`, `--demo`. It only reads the Prometheus HTTP API.
+
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
 ## 中文
@@ -274,6 +296,7 @@ make build
 ./bin/sre diff-review --demo
 ./bin/sre runbook --demo
 ./bin/sre triage --demo
+./bin/sre slo --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -336,6 +359,15 @@ make build
 
 `--demo` 不访问 Prometheus。默认指标是 `http_requests_total`（错误用 `code=~"5.."`）和 `http_request_duration_seconds_bucket`，标签是 `job="{service}"`。地址用 `--prometheus-url` 或环境变量 `PROMETHEUS_URL`。本命令不查日志。
 
+错误预算：
+
+```bash
+./bin/sre slo --demo
+./bin/sre slo checkout --prometheus-url http://prometheus:9090 --slo 99.9 --window 1h,6h,3d
+```
+
+`--demo` 不访问 Prometheus。99.9% 目标下，1 小时燃烧率约 20 倍（需要 page），6 小时约 8 倍，3 天窗口的预算已经用完。建议冻结发布并升级。默认查询与 triage 相同，用 `increase()` 计算窗口内的 5xx 比例。
+
 ### 真实集群
 
 ```bash
@@ -356,7 +388,9 @@ make build
 
 ### 命令
 
-`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook` 和 `triage` 已实现。`slo`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook`、`triage` 和 `slo` 已实现。`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`slo` 计算可用性错误预算和 1h/6h/3d 燃烧率，并给出是否冻结发布。`--demo` 是预算已经烧穿的离线场景。
 
 `triage` 通过 Prometheus HTTP API 读取请求速率、5xx 比例和 p95/p99，并给出假设和下一步 kubectl / PromQL。`--demo` 是离线尖峰。
 
