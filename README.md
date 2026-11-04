@@ -1,12 +1,19 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist. `triage` builds an incident brief from Prometheus. `slo` reports **success ratio → error budget remaining → burn rates → release decision**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. All eight commands are implemented:
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册。`triage` 用 Prometheus 生成排查简报。`slo` 报告 **成功率 → 错误预算剩余 → 燃烧率 → 是否冻结发布**。
+| Command | What it does |
+| --- | --- |
+| `k8s-pulse` | Pod, node, and warning-event health pulse |
+| `certs` | Ingress and TLS secret expiry |
+| `waste` | Idle workloads, oversized requests, empty load balancers, orphaned PVCs |
+| `diff-review` | Risky field changes between two manifest sets |
+| `runbook` | Rollback checklist for a Deployment or StatefulSet |
+| `triage` | Prometheus RED brief: errors, latency, traffic, next checks |
+| `slo` | Error budget, multi-window burn rate, release freeze decision |
+| `daily` | Morning digest across kubeconfig contexts |
 
-The `daily` command is still a placeholder.
-
-`daily` 仍为占位，执行时会打印 TODO。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。八个命令均已实现：`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook`、`triage`、`slo`、`daily`。
 
 ## English
 
@@ -23,6 +30,7 @@ make build
 ./bin/sre runbook --demo
 ./bin/sre triage --demo
 ./bin/sre slo --demo
+./bin/sre daily --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -216,6 +224,36 @@ CRITICAL  Recommendation  service checkout
 
 `--window` takes at least two durations, default `1h,6h,3d` (`1h/6h/3d` works too). Burn rate is the window's 5xx ratio divided by `(1 - SLO)`. The fast window pages at 14.4x. A 6h burn at 6x, or a multi-day burn at 1x, freezes non-urgent releases. The default query is `increase()` of `http_requests_total` with `code=~"5.."` over all requests, selected by `job="{service}"`. Override it with `--errors` or `--selector`. The same Prometheus URL and bearer token as `sre triage` are used.
 
+### Morning digest
+
+```bash
+./bin/sre daily --demo
+./bin/sre daily --demo --markdown
+./bin/sre daily --context prod-eu --context prod-us --markdown
+./bin/sre daily --contexts-file contexts.txt --report digest.md
+```
+
+`--demo` prints two synthetic contexts and does not contact a cluster. `prod-eu` has a NotReady node, two CrashLoop pods, one OOM, a failed Job, warning events, and certificates inside 7 and 30 days. `prod-us` is quiet. `--markdown` is the form to paste into Slack or Feishu.
+
+```text
+CRITICAL  Cluster  prod-eu
+  Phenomenon    1/3 nodes NotReady · crashloop 2 · oom 1 · failed jobs 1 · warnings 4 · certs due 2 · certs warn 1
+  Next step     sre k8s-pulse --context prod-eu -A; sre certs --context prod-eu -A
+```
+
+Repeat `--context`, or put one name per line in `--contexts-file` (`#` comments are skipped). With neither flag, the current kubeconfig context is used. Counts reuse `sre k8s-pulse` and `sre certs`.
+
+A morning cron or GitHub Actions schedule can run the markdown form. The workflow only needs a kubeconfig secret and Go or a built `sre` binary:
+
+```bash
+# crontab
+0 8 * * * sre daily --context prod-eu --context prod-us --markdown > "$HOME/digest.md"
+
+# GitHub Actions
+# on: schedule: cron: "0 0 * * *"
+# run: sre daily --contexts-file contexts.txt --markdown > digest.md
+```
+
 ### Live cluster
 
 ```bash
@@ -259,7 +297,7 @@ Do not commit kubeconfig files.
 | `runbook` | Rollback checklist for a Deployment or StatefulSet |
 | `triage` | Prometheus RED brief: error rate, latency, traffic, next checks |
 | `slo` | Error budget, multi-window burn rate, and release freeze decision |
-| `daily` | Planned: one-page operator digest |
+| `daily` | Morning digest across kubeconfig contexts |
 | `version` | Print the build version |
 
 `k8s-pulse` flags: `-n/--namespace`, `-A/--all-namespaces`, `--demo`, `--kubeconfig`, `--context`, `--restart-threshold` (default 5), `--since` (default `1h`), `--event-limit` (default 20), `--timeout` (default `30s`).
@@ -280,6 +318,8 @@ Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicase
 
 `slo` flags: service argument or `--service`, `--slo` (default `99.9`), `--window` (default `1h,6h,3d`), `--prometheus-url`, `--bearer-token`, `--selector`, `--errors`, `--timeout`, `--demo`. It only reads the Prometheus HTTP API.
 
+`daily` flags: repeatable `--context`, `--contexts-file`, `--kubeconfig`, `--timeout`, `--demo`. It reads nodes, pods, events, jobs, and TLS secrets. One unreachable context is reported in the digest; the command fails only when every context fails.
+
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
 ## 中文
@@ -297,6 +337,7 @@ make build
 ./bin/sre runbook --demo
 ./bin/sre triage --demo
 ./bin/sre slo --demo
+./bin/sre daily --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -368,6 +409,16 @@ make build
 
 `--demo` 不访问 Prometheus。99.9% 目标下，1 小时燃烧率约 20 倍（需要 page），6 小时约 8 倍，3 天窗口的预算已经用完。建议冻结发布并升级。默认查询与 triage 相同，用 `increase()` 计算窗口内的 5xx 比例。
 
+早报：
+
+```bash
+./bin/sre daily --demo
+./bin/sre daily --demo --markdown
+./bin/sre daily --context prod-eu --context prod-us --markdown
+```
+
+`--demo` 包含两个合成集群：`prod-eu` 有 NotReady 节点、CrashLoop、OOM、失败 Job 和即将到期的证书；`prod-us` 是安静的。`--markdown` 适合贴到 Slack 或飞书。可用 cron 或 GitHub Actions 每天跑一次。
+
 ### 真实集群
 
 ```bash
@@ -388,7 +439,9 @@ make build
 
 ### 命令
 
-`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook`、`triage` 和 `slo` 已实现。`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+八个命令均已实现：`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook`、`triage`、`slo`、`daily`。`sre version` 打印版本。
+
+`daily` 汇总多个 context 的节点、CrashLoop/OOM、失败 Job、Warning 事件和证书到期数量。`--demo` 是两个合成集群。
 
 `slo` 计算可用性错误预算和 1h/6h/3d 燃烧率，并给出是否冻结发布。`--demo` 是预算已经烧穿的离线场景。
 

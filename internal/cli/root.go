@@ -23,11 +23,10 @@ func NewRoot() *cobra.Command {
 		Short: "SRE and cloud-native operations toolkit",
 		Long: `sre is a kubectl-friendly toolkit for SRE and cloud-native operations.
 
-Shipped commands are k8s-pulse, certs, waste, diff-review, runbook, triage, and slo.
-The daily command is reserved and prints a TODO until a later release.
+Shipped commands are k8s-pulse, certs, waste, diff-review, runbook, triage, slo, and daily.
 
 sre 是面向 SRE 与云原生运维的命令行工具。
-当前已实现 k8s-pulse、certs、waste、diff-review、runbook、triage 和 slo；daily 仍为占位。`,
+k8s-pulse、certs、waste、diff-review、runbook、triage、slo 和 daily 均已实现。`,
 		SilenceErrors:     true,
 		Version:           version.String(),
 		CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
@@ -48,9 +47,7 @@ sre 是面向 SRE 与云原生运维的命令行工具。
 	root.AddCommand(newRunbook(opts))
 	root.AddCommand(newTriage(opts))
 	root.AddCommand(newSLO(opts))
-	for _, spec := range plannedSpecs() {
-		root.AddCommand(plannedCommand(opts, spec))
-	}
+	root.AddCommand(newDaily(opts))
 	root.AddCommand(newVersion())
 	return root
 }

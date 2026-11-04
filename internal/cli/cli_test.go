@@ -126,30 +126,12 @@ func TestPlannedCommandsAndHelp(t *testing.T) {
 			t.Fatalf("help missing %s\n%s", name, help)
 		}
 	}
-	out, _, err := execCLI(t, "daily")
+	helpDaily, _, err := execCLI(t, "daily", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "TODO:") || !strings.Contains(out, "计划中") {
-		t.Fatalf("daily = %s", out)
-	}
-	longHelp, _, err := execCLI(t, "daily", "--help")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(longHelp, "TODO:") || !strings.Contains(longHelp, "计划中") {
-		t.Fatalf("help = %s", longHelp)
-	}
-	js, _, err := execCLI(t, "daily", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc output.Document
-	if err := json.Unmarshal([]byte(js), &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.Command != "daily" || len(doc.Notes) == 0 || !strings.Contains(doc.Notes[0], "TODO:") {
-		t.Fatalf("doc = %+v", doc)
+	if strings.Contains(helpDaily, "not implemented") || !strings.Contains(helpDaily, "--contexts-file") {
+		t.Fatalf("daily help = %s", helpDaily)
 	}
 }
 
@@ -457,6 +439,21 @@ func TestSLODemo(t *testing.T) {
 	}
 	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--slo") {
 		t.Fatalf("help = %s", help)
+	}
+}
+
+func TestDailyDemo(t *testing.T) {
+	out, _, err := execCLI(t, "daily", "--demo", "--markdown", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# Morning digest", "prod-eu", "prod-us", "crashloop 2", "oom 1", "failed jobs 1", "sre k8s-pulse --context prod-eu"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "not implemented") {
+		t.Fatalf("still a placeholder\n%s", out)
 	}
 }
 
