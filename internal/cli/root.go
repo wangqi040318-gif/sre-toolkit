@@ -23,11 +23,11 @@ func NewRoot() *cobra.Command {
 		Short: "SRE and cloud-native operations toolkit",
 		Long: `sre is a kubectl-friendly toolkit for SRE and cloud-native operations.
 
-Shipped commands are k8s-pulse, certs, waste, diff-review, and runbook. Other
-commands are reserved and print a TODO until later releases.
+Shipped commands are k8s-pulse, certs, waste, diff-review, runbook, and triage.
+Other commands are reserved and print a TODO until later releases.
 
 sre 是面向 SRE 与云原生运维的命令行工具。
-当前已实现 k8s-pulse、certs、waste、diff-review 和 runbook；其余子命令为占位，后续版本实现。`,
+当前已实现 k8s-pulse、certs、waste、diff-review、runbook 和 triage；其余子命令为占位，后续版本实现。`,
 		SilenceErrors:     true,
 		Version:           version.String(),
 		CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
@@ -46,6 +46,7 @@ sre 是面向 SRE 与云原生运维的命令行工具。
 	root.AddCommand(newWaste(opts))
 	root.AddCommand(newDiffReview(opts))
 	root.AddCommand(newRunbook(opts))
+	root.AddCommand(newTriage(opts))
 	for _, spec := range plannedSpecs() {
 		root.AddCommand(plannedCommand(opts, spec))
 	}

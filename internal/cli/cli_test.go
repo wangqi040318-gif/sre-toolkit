@@ -126,12 +126,12 @@ func TestPlannedCommandsAndHelp(t *testing.T) {
 			t.Fatalf("help missing %s\n%s", name, help)
 		}
 	}
-	out, _, err := execCLI(t, "triage")
+	out, _, err := execCLI(t, "slo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "TODO:") || !strings.Contains(out, "计划中") {
-		t.Fatalf("triage = %s", out)
+		t.Fatalf("slo = %s", out)
 	}
 	longHelp, _, err := execCLI(t, "slo", "--help")
 	if err != nil {
@@ -396,6 +396,36 @@ func TestRunbookDemo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--revision") {
+		t.Fatalf("help = %s", help)
+	}
+}
+
+func TestTriageDemo(t *testing.T) {
+	out, _, err := execCLI(t, "triage", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "triage" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	for _, want := range []string{"5xx ratio", "checkout", "p95", "kubectl get pods", "Logs are not queried", "http_requests_total"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q\n%s", want, out)
+		}
+	}
+	_, _, err = execCLI(t, "triage", "checkout")
+	if err == nil || !strings.Contains(err.Error(), "prometheus URL") {
+		t.Fatalf("err = %v", err)
+	}
+	help, _, err := execCLI(t, "triage", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--prometheus-url") {
 		t.Fatalf("help = %s", help)
 	}
 }

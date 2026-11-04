@@ -18,17 +18,6 @@ type plannedSpec struct {
 func plannedSpecs() []plannedSpec {
 	return []plannedSpec{
 		{
-			use:   "triage",
-			short: "Guided incident triage from a symptom (planned)",
-			long: `Start from a pod, node, or error text and walk the next checks:
-scope, recent changes, dependencies, and a suggested owner.
-
-TODO: not implemented yet.
-
-计划中：从 Pod、节点或报错出发，给出分层排查步骤。`,
-			todo: "TODO: sre triage is not implemented yet. Planned: guided incident triage from a pod, node, or error text. 计划中：从现象出发的分层排查。",
-		},
-		{
 			use:   "slo",
 			short: "SLO burn and error-budget snapshot (planned)",
 			long: `Show burn rate and remaining error budget for recorded SLIs.

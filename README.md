@@ -1,12 +1,12 @@
 # sre-toolkit
 
-`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist: **current revision → pre-checks → undo command → verify → abort**.
+`sre` is a small command-line toolkit for SRE and cloud-native operations. `k8s-pulse` reads nodes, pods, and warning events. `certs` watches certificate expiry. `waste` looks for idle or oversized objects. `diff-review` compares two manifest sets. `runbook` prints a rollback checklist. `triage` builds an incident brief from Prometheus RED metrics: **error rate → latency → traffic → hypothesis → next checks**.
 
-`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册：**当前版本 → 预检查 → undo 命令 → 验证 → 中止条件**。
+`sre` 是一个面向 SRE 与云原生运维的命令行工具。`k8s-pulse` 读取节点、Pod 和 Warning 事件。`certs` 检查证书到期。`waste` 查找闲置或过大的对象。`diff-review` 对比两份清单。`runbook` 生成回滚手册。`triage` 用 Prometheus 的 RED 指标生成排查简报：**错误率 → 延迟 → 流量 → 假设 → 下一步**。
 
-Other commands (`triage`, `slo`, `daily`) are reserved placeholders.
+Other commands (`slo`, `daily`) are reserved placeholders.
 
-其余子命令（`triage`、`slo`、`daily`）仅为占位，执行时会打印 TODO。
+其余子命令（`slo`、`daily`）仅为占位，执行时会打印 TODO。
 
 ## English
 
@@ -21,6 +21,7 @@ make build
 ./bin/sre waste --demo
 ./bin/sre diff-review --demo
 ./bin/sre runbook --demo
+./bin/sre triage --demo
 ```
 
 `make test` runs the unit tests. `make demo` builds the binary and runs the demo pulse.
@@ -169,6 +170,32 @@ WARNING   Rollback  Deployment shop/checkout
 
 Live mode reads the Deployment (or StatefulSet), its ReplicaSets or ControllerRevisions, and matching pods. `--revision` picks the undo target. The default is the newest revision below the current one.
 
+### Triage demo (no Prometheus)
+
+```bash
+./bin/sre triage --demo
+./bin/sre triage --demo checkout --json
+./bin/sre triage checkout --prometheus-url http://prometheus:9090 --window 1h
+./bin/sre triage checkout --since 30m --selector 'service="{service}"'
+```
+
+`--demo` does not call Prometheus. It is a one-hour `checkout` spike: the 5xx ratio climbs from about 0.2% to 14%, p95 from about 80ms to 1.4s, and request rate eases from 120 to about 90 req/s in the last 15 minutes. The brief states the hypothesis (bad release or a slow dependency) and prints kubectl plus the PromQL that would be sent live.
+
+```text
+CRITICAL  ErrorRate  service checkout
+  Phenomenon    5xx ratio is 12.0% now (start 0.2%, peak 14.0%).
+  Likely cause  The 5xx ratio crossed 5%. A bad release or a dependency returning errors is the first hypothesis.
+  Next step     sum(rate(http_requests_total{job="checkout",code=~"5.."}[5m])) / ...
+```
+
+Default metrics, overridable with `--requests`, `--errors`, `--p95`, `--p99`, and `--selector`:
+
+- request rate: `sum(rate(http_requests_total{job="{service}"}[5m]))`
+- 5xx ratio: the same counter with `code=~"5.."` divided by all requests
+- p95 and p99: `histogram_quantile` on `http_request_duration_seconds_bucket`
+
+The URL is `--prometheus-url` or `PROMETHEUS_URL`. An optional bearer token is `--bearer-token` or `PROMETHEUS_TOKEN` and is not printed. `--window` or `--since` is the lookback (default `1h`). `--until` is an RFC3339 end time. Logs are not queried.
+
 ### Live cluster
 
 ```bash
@@ -210,7 +237,7 @@ Do not commit kubeconfig files.
 | `waste` | Idle workloads, oversized requests, empty load balancers, orphaned PVCs |
 | `diff-review` | Risky field changes between two manifest sets |
 | `runbook` | Rollback checklist for a Deployment or StatefulSet |
-| `triage` | Planned: guided triage from a pod, node, or error |
+| `triage` | Prometheus RED brief: error rate, latency, traffic, next checks |
 | `slo` | Planned: error-budget and burn-rate snapshot |
 | `daily` | Planned: one-page operator digest |
 | `version` | Print the build version |
@@ -229,6 +256,8 @@ Live `waste` needs `get` and `list` on `deployments`, `statefulsets`, `replicase
 
 `runbook` flags: `-n/--namespace`, workload name argument or `--name`, `--kind` (`deployment` or `statefulset`), `--revision`, `--demo`, `--kubeconfig`, `--context`, `--timeout`. Live mode needs `get` on the workload and `list` on `replicasets` or `controllerrevisions`, plus `list` on `pods`. It only prints kubectl commands.
 
+`triage` flags: service argument or `--service`, `--window` or `--since` (default `1h`), `--until`, `--prometheus-url`, `--bearer-token`, `--selector`, `--requests`, `--errors`, `--p95`, `--p99`, `--timeout`, `--demo`. It only reads the Prometheus HTTP API.
+
 An OOMKilled container is reported as OOM even when it is also CrashLoopBackOff, because the memory kill is the cause of the loop. Completed (`Succeeded`) pods are scanned but not flagged for restarts.
 
 ## 中文
@@ -244,6 +273,7 @@ make build
 ./bin/sre waste --demo
 ./bin/sre diff-review --demo
 ./bin/sre runbook --demo
+./bin/sre triage --demo
 ```
 
 `make test` 运行单元测试。`make demo` 会先构建再跑演示。
@@ -297,6 +327,15 @@ make build
 
 `--demo` 是一次失败的 checkout 发布：revision 12 的镜像 `checkout:1.9.0` 没有 Ready Pod，因为缺少 `STRIPE_API_KEY`。手册给出回到 revision 11（`checkout:1.8.4`）的 `kubectl rollout undo`、备用 `set image`、验证和中止条件。命令只打印，不会执行。
 
+值班排查：
+
+```bash
+./bin/sre triage --demo
+./bin/sre triage checkout --prometheus-url http://prometheus:9090 --window 1h
+```
+
+`--demo` 不访问 Prometheus。默认指标是 `http_requests_total`（错误用 `code=~"5.."`）和 `http_request_duration_seconds_bucket`，标签是 `job="{service}"`。地址用 `--prometheus-url` 或环境变量 `PROMETHEUS_URL`。本命令不查日志。
+
 ### 真实集群
 
 ```bash
@@ -317,7 +356,9 @@ make build
 
 ### 命令
 
-`k8s-pulse`、`certs`、`waste`、`diff-review` 和 `runbook` 已实现。`triage`、`slo`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+`k8s-pulse`、`certs`、`waste`、`diff-review`、`runbook` 和 `triage` 已实现。`slo`、`daily` 会打印 TODO，留给后续版本。`sre version` 打印版本。
+
+`triage` 通过 Prometheus HTTP API 读取请求速率、5xx 比例和 p95/p99，并给出假设和下一步 kubectl / PromQL。`--demo` 是离线尖峰。
 
 `runbook` 根据 Deployment 或 StatefulSet 的当前镜像、副本和 revision 生成回滚清单。真实集群需要读取对应工作负载及其 ReplicaSet 或 ControllerRevision。
 
