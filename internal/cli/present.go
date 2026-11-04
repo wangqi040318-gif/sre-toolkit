@@ -9,6 +9,7 @@ import (
 	"github.com/wangqi040318-gif/sre-toolkit/internal/output"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/pulse"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/runbook"
+	"github.com/wangqi040318-gif/sre-toolkit/internal/slo"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/triage"
 	"github.com/wangqi040318-gif/sre-toolkit/internal/waste"
 )
@@ -239,6 +240,60 @@ func runbookDocument(rep runbook.Report, mode string) output.Document {
 		Summary:     summary,
 		Findings:    findings,
 		Notes:       append([]string(nil), rep.Notes...),
+	}
+}
+
+func sloDocument(rep slo.Report, mode string) output.Document {
+	remaining := "missing"
+	if rep.HasBudget {
+		remaining = strconv.FormatFloat(rep.Remaining*100, 'f', 1, 64) + "%"
+	}
+	meta := []output.Field{
+		{Name: "Service", Value: rep.Service},
+		{Name: "SLO", Value: strconv.FormatFloat(rep.Target*100, 'f', 2, 64) + "%"},
+		{Name: "Mode", Value: mode},
+		{Name: "Error budget", Value: strconv.FormatFloat(rep.Budget*100, 'f', 3, 64) + "%"},
+		{Name: "Budget remaining", Value: remaining},
+		{Name: "Recommendation", Value: rep.Decision.Action},
+	}
+	var critical, warning, info int
+	findings := make([]output.Finding, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		switch f.Severity {
+		case "critical":
+			critical++
+		case "warning":
+			warning++
+		default:
+			info++
+		}
+		details := make([]output.Field, 0, len(f.Details))
+		for _, d := range f.Details {
+			details = append(details, output.Field{Name: d.Name, Value: d.Value})
+		}
+		findings = append(findings, output.Finding{
+			Severity:    f.Severity,
+			Category:    f.Category,
+			Resource:    f.Resource,
+			Phenomenon:  f.Phenomenon,
+			LikelyCause: f.LikelyCause,
+			NextStep:    f.NextStep,
+			Details:     details,
+		})
+	}
+	return output.Document{
+		Title:       "SLO error budget",
+		Command:     "slo",
+		GeneratedAt: time.Now().UTC(),
+		Demo:        rep.Demo,
+		Meta:        meta,
+		Summary: []output.Counter{
+			{Name: "Critical", Count: critical},
+			{Name: "Warning", Count: warning},
+			{Name: "Info", Count: info},
+		},
+		Findings: findings,
+		Notes:    append([]string(nil), rep.Notes...),
 	}
 }
 

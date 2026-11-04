@@ -126,14 +126,14 @@ func TestPlannedCommandsAndHelp(t *testing.T) {
 			t.Fatalf("help missing %s\n%s", name, help)
 		}
 	}
-	out, _, err := execCLI(t, "slo")
+	out, _, err := execCLI(t, "daily")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "TODO:") || !strings.Contains(out, "计划中") {
-		t.Fatalf("slo = %s", out)
+		t.Fatalf("daily = %s", out)
 	}
-	longHelp, _, err := execCLI(t, "slo", "--help")
+	longHelp, _, err := execCLI(t, "daily", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,6 +426,36 @@ func TestTriageDemo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--prometheus-url") {
+		t.Fatalf("help = %s", help)
+	}
+}
+
+func TestSLODemo(t *testing.T) {
+	out, _, err := execCLI(t, "slo", "--demo", "--json", "--no-color")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc output.Document
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if !doc.Demo || doc.Command != "slo" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	for _, want := range []string{"Page and freeze", "20.0x", "99.90%", "checkout", "http_requests_total", "[3d]"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q\n%s", want, out)
+		}
+	}
+	_, _, err = execCLI(t, "slo", "checkout", "--window", "1h")
+	if err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("err = %v", err)
+	}
+	help, _, err := execCLI(t, "slo", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "not implemented") || !strings.Contains(help, "--slo") {
 		t.Fatalf("help = %s", help)
 	}
 }

@@ -18,16 +18,6 @@ type plannedSpec struct {
 func plannedSpecs() []plannedSpec {
 	return []plannedSpec{
 		{
-			use:   "slo",
-			short: "SLO burn and error-budget snapshot (planned)",
-			long: `Show burn rate and remaining error budget for recorded SLIs.
-
-TODO: not implemented yet.
-
-计划中：展示错误预算消耗与燃烧率。`,
-			todo: "TODO: sre slo is not implemented yet. Planned: error-budget and burn-rate snapshot. 计划中：错误预算与燃烧率快照。",
-		},
-		{
 			use:   "daily",
 			short: "Daily operator digest (planned)",
 			long: `One-page digest of overnight alerts, deploys, and pulse findings.
